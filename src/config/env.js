@@ -31,7 +31,6 @@ module.exports = {
   port: Number.parseInt(process.env.PORT || "4000", 10),
   mongoUri: process.env.MONGODB_URI || "mongodb://localhost:27017/nid_voter",
   clientOrigins,
-  allowAllCors: toBoolean(process.env.ALLOW_ALL_CORS, false),
   isProduction: process.env.NODE_ENV === "production",
   authUsername: process.env.AUTH_USERNAME || "admin",
   authPasswordHash: process.env.AUTH_PASSWORD_HASH || DEFAULT_PASSWORD_HASH,

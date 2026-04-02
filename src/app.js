@@ -7,25 +7,14 @@ const env = require("./config/env");
 const apiRoutes = require("./routes/api-routes");
 
 const app = express();
+const corsOptions = {
+  origin: true,
+  credentials: true,
+};
 
 app.disable("x-powered-by");
 app.use(helmet());
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (env.allowAllCors) {
-        return callback(null, true);
-      }
-
-      if (!origin || env.clientOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error(`CORS blocked for origin: ${origin}`));
-    },
-    credentials: true,
-  }),
-);
+app.use(cors(corsOptions));
 app.use(compression());
 app.use(cookieParser());
 app.use(express.json({ limit: "1mb" }));
