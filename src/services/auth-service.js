@@ -21,12 +21,16 @@ function buildUserProfile() {
 }
 
 function getCookieOptions() {
+  const sameSite = env.cookieSameSite;
+  const secure = sameSite === "none" ? true : env.cookieSecure;
+
   return {
     httpOnly: true,
-    sameSite: "lax",
-    secure: env.cookieSecure,
+    sameSite,
+    secure,
     path: "/",
     maxAge: 12 * 60 * 60 * 1000,
+    ...(env.cookieDomain ? { domain: env.cookieDomain } : {}),
   };
 }
 

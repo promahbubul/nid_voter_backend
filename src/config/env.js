@@ -8,10 +8,23 @@ const clientOrigins = String(process.env.CLIENT_ORIGIN || "http://localhost:3001
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
+const validSameSiteValues = new Set(["lax", "strict", "none"]);
 
 function toBoolean(value, fallback = false) {
   if (value == null || value === "") return fallback;
   return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
+
+function normalizeSameSite(value, fallback = "lax") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (validSameSiteValues.has(normalized)) {
+    return normalized;
+  }
+
+  return fallback;
 }
 
 module.exports = {
@@ -25,4 +38,6 @@ module.exports = {
   jwtSecret: process.env.JWT_SECRET || "change-this-jwt-secret-for-production",
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || "12h",
   cookieSecure: toBoolean(process.env.COOKIE_SECURE, process.env.NODE_ENV === "production"),
+  cookieSameSite: normalizeSameSite(process.env.COOKIE_SAME_SITE, process.env.NODE_ENV === "production" ? "none" : "lax"),
+  cookieDomain: String(process.env.COOKIE_DOMAIN || "").trim() || undefined,
 };
