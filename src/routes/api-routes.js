@@ -2,7 +2,7 @@ const express = require("express");
 const authController = require("../controllers/auth-controller");
 const metaController = require("../controllers/meta-controller");
 const voterController = require("../controllers/voter-controller");
-const { loginRateLimiter, requireAuth } = require("../middleware/auth-middleware");
+const { loginRateLimiter, requireAuth, requireDatabase } = require("../middleware/auth-middleware");
 
 const router = express.Router();
 
@@ -12,6 +12,7 @@ router.post("/auth/logout", authController.logout);
 router.get("/auth/me", requireAuth, authController.getCurrentUser);
 
 router.use(requireAuth);
+router.use(requireDatabase);
 
 router.get("/stats", metaController.getStats);
 router.get("/dashboard/overview", metaController.getOverview);

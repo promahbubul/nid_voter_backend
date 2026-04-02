@@ -1,5 +1,6 @@
 const rateLimit = require("express-rate-limit");
 const authService = require("../services/auth-service");
+const { connectToDatabase, createDatabaseUnavailableError } = require("../config/db");
 
 const loginRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -21,7 +22,17 @@ function requireAuth(req, _res, next) {
   }
 }
 
+async function requireDatabase(_req, _res, next) {
+  try {
+    await connectToDatabase();
+    next();
+  } catch (_error) {
+    next(createDatabaseUnavailableError());
+  }
+}
+
 module.exports = {
   loginRateLimiter,
   requireAuth,
+  requireDatabase,
 };

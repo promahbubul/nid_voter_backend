@@ -1,5 +1,10 @@
 const { getDb } = require("../config/db");
-const { buildRegexFilter, normalizeDigits, normalizeListParam, parseIntOrNull } = require("../utils/query");
+const { buildRegexFilter, normalizeDigits, normalizeListParam, normalizeTextValue, parseIntOrNull } = require("../utils/query");
+
+const MAX_VOTER_PAGE_SIZE = 100;
+const MAX_LOOKUP_LIMIT = 500;
+const MAX_SEARCH_LENGTH = 80;
+const MAX_EXACT_MATCH_LENGTH = 64;
 
 const VOTER_RESULT_PROJECTION = {
   _id: 1,
@@ -75,21 +80,24 @@ function applyInFilter(query, field, values) {
   if (values.length > 1) query[field] = { $in: values };
 }
 
+function appendAndCondition(query, condition) {
+  if (!condition) return;
+  query.$and = query.$and || [];
+  query.$and.push(condition);
+}
+
 function buildVoterQuery(params) {
   const query = {};
 
-  applyInFilter(query, "source_folder", normalizeListParam(params.sourceFolder));
-  applyInFilter(query, "voter_area_code", normalizeListParam(params.areaCode));
-  applyInFilter(query, "source_path", normalizeListParam(params.sourcePath));
-  applyInFilter(query, "gender", normalizeListParam(params.gender));
-  applyInFilter(query, "record_status", normalizeListParam(params.recordStatus));
-  applyInFilter(query, "special_tag", normalizeListParam(params.specialTag));
+  applyInFilter(query, "source_folder", normalizeListParam(params.sourceFolder, { maxItems: 20, maxItemLength: MAX_EXACT_MATCH_LENGTH }));
+  applyInFilter(query, "voter_area_code", normalizeListParam(params.areaCode, { maxItems: 20, maxItemLength: MAX_EXACT_MATCH_LENGTH }));
+  applyInFilter(query, "source_path", normalizeListParam(params.sourcePath, { maxItems: 20, maxItemLength: 160 }));
+  applyInFilter(query, "gender", normalizeListParam(params.gender, { maxItems: 5, maxItemLength: 16 }));
+  applyInFilter(query, "record_status", normalizeListParam(params.recordStatus, { maxItems: 5, maxItemLength: 24 }));
+  applyInFilter(query, "special_tag", normalizeListParam(params.specialTag, { maxItems: 10, maxItemLength: 24 }));
 
-  const wardFilter = buildWardFilter(params.wardNo ?? params.word);
-  if (wardFilter) {
-    query.$and = query.$and || [];
-    query.$and.push(wardFilter);
-  }
+  const wardFilter = buildWardFilter(params.wardNo ?? params.ward ?? params.word);
+  appendAndCondition(query, wardFilter);
 
   const partNo = parseIntOrNull(params.partNo);
   if (partNo != null) query.part_no = partNo;
@@ -102,34 +110,37 @@ function buildVoterQuery(params) {
     if (birthYearTo != null) query.birth_year.$lte = birthYearTo;
   }
 
-  if (params.publishDate) query.publish_date = String(params.publishDate).trim();
-  if (params.birthDate ?? params.dob) query.birth_date = String(params.birthDate ?? params.dob).trim();
+  const publishDate = normalizeTextValue(params.publishDate, { maxLength: 32 });
+  if (publishDate) query.publish_date = publishDate;
+
+  const birthDate = normalizeTextValue(params.birthDate ?? params.dob, { maxLength: 32 });
+  if (birthDate) query.birth_date = birthDate;
+
   if (params.voterNo ?? params.voterNumber) {
-    query.voter_no = normalizeDigits(String(params.voterNo ?? params.voterNumber).trim());
+    query.voter_no = normalizeDigits(normalizeTextValue(params.voterNo ?? params.voterNumber, { maxLength: 32 }));
   }
 
-  const districtFilter = buildRegexFilter(params.zilaName ?? params.district);
+  const districtFilter = buildRegexFilter(params.zilaName ?? params.district, { maxLength: MAX_SEARCH_LENGTH });
   if (districtFilter) query.district_raw = districtFilter;
 
-  const upazilaFilter = buildRegexFilter(params.upozilaName ?? params.upazila);
+  const upazilaFilter = buildRegexFilter(params.upozilaName ?? params.upazila, { maxLength: MAX_SEARCH_LENGTH });
   if (upazilaFilter) query.upazila_raw = upazilaFilter;
 
-  const occupationFilter = buildRegexFilter(params.occupation);
+  const occupationFilter = buildRegexFilter(params.occupation, { maxLength: MAX_SEARCH_LENGTH });
   if (occupationFilter) query.occupation_raw = occupationFilter;
 
-  const nameFilter = buildRegexFilter(params.name);
+  const nameFilter = buildRegexFilter(params.name, { maxLength: MAX_SEARCH_LENGTH });
   if (nameFilter) query.name_raw = nameFilter;
 
-  const fatherFilter = buildRegexFilter(params.fatherName);
+  const fatherFilter = buildRegexFilter(params.fatherName, { maxLength: MAX_SEARCH_LENGTH });
   if (fatherFilter) query.father_name_raw = fatherFilter;
 
-  const motherFilter = buildRegexFilter(params.motherName);
+  const motherFilter = buildRegexFilter(params.motherName, { maxLength: MAX_SEARCH_LENGTH });
   if (motherFilter) query.mother_name_raw = motherFilter;
 
-  const areaFilter = buildRegexFilter(params.area);
+  const areaFilter = buildRegexFilter(params.area, { maxLength: MAX_SEARCH_LENGTH });
   if (areaFilter) {
-    query.$and = query.$and || [];
-    query.$and.push({
+    appendAndCondition(query, {
       $or: [
         { source_folder: areaFilter },
         { voter_area_name_raw: areaFilter },
@@ -138,10 +149,9 @@ function buildVoterQuery(params) {
     });
   }
 
-  const generalFilter = buildRegexFilter(params.q);
+  const generalFilter = buildRegexFilter(normalizeDigits(params.q), { maxLength: MAX_SEARCH_LENGTH });
   if (generalFilter) {
-    query.$and = query.$and || [];
-    query.$and.push({
+    appendAndCondition(query, {
       $or: [
         { name_raw: generalFilter },
         { father_name_raw: generalFilter },
@@ -170,8 +180,9 @@ function buildSort(sortBy, sortOrder) {
     "publish_date",
   ]);
 
-  const field = allowed.has(sortBy) ? sortBy : "serial";
-  const direction = sortOrder === "desc" ? -1 : 1;
+  const normalizedSortBy = normalizeTextValue(sortBy, { maxLength: 32 });
+  const field = allowed.has(normalizedSortBy) ? normalizedSortBy : "serial";
+  const direction = String(sortOrder || "").trim().toLowerCase() === "desc" ? -1 : 1;
 
   if (field === "serial") {
     return { voter_area_code: 1, gender: 1, serial: direction };
@@ -184,7 +195,7 @@ async function listVoters(params) {
   const db = getDb();
   const voters = db.collection("voters");
   const page = Math.max(parseIntOrNull(params.page) || 1, 1);
-  const limit = Math.min(Math.max(parseIntOrNull(params.limit) || 50, 1), 100);
+  const limit = Math.min(Math.max(parseIntOrNull(params.limit) || 50, 1), MAX_VOTER_PAGE_SIZE);
   const skip = (page - 1) * limit;
   const query = buildVoterQuery(params);
   const sort = buildSort(params.sortBy, params.sortOrder);
@@ -206,19 +217,16 @@ async function listVoters(params) {
 async function listAreas(params) {
   const db = getDb();
   const areas = db.collection("areas");
-  const limit = Math.min(Math.max(parseIntOrNull(params.limit) || 100, 1), 500);
+  const limit = Math.min(Math.max(parseIntOrNull(params.limit) || 100, 1), MAX_LOOKUP_LIMIT);
   const query = {};
 
-  const sourceFolder = params.sourceFolder ? String(params.sourceFolder).trim() : null;
+  const sourceFolder = normalizeTextValue(params.sourceFolder, { maxLength: MAX_EXACT_MATCH_LENGTH });
   if (sourceFolder) query.source_folder = sourceFolder;
 
-  const wardFilter = buildWardFilter(params.wardNo ?? params.word);
-  if (wardFilter) {
-    query.$and = query.$and || [];
-    query.$and.push(wardFilter);
-  }
+  const wardFilter = buildWardFilter(params.wardNo ?? params.ward ?? params.word);
+  appendAndCondition(query, wardFilter);
 
-  const areaFilter = buildRegexFilter(params.area ?? params.q);
+  const areaFilter = buildRegexFilter(params.area ?? params.q, { maxLength: MAX_SEARCH_LENGTH });
   if (areaFilter) {
     query.$or = [
       { source_folder: areaFilter },
@@ -243,11 +251,14 @@ async function listAreas(params) {
 async function listSourceFiles(params) {
   const db = getDb();
   const sourceFiles = db.collection("source_files");
-  const limit = Math.min(Math.max(parseIntOrNull(params.limit) || 100, 1), 500);
+  const limit = Math.min(Math.max(parseIntOrNull(params.limit) || 100, 1), MAX_LOOKUP_LIMIT);
   const query = {};
 
-  if (params.sourceFolder) query.source_folder = String(params.sourceFolder).trim();
-  if (params.areaCode) query.voter_area_code = String(params.areaCode).trim();
+  const sourceFolder = normalizeTextValue(params.sourceFolder, { maxLength: MAX_EXACT_MATCH_LENGTH });
+  if (sourceFolder) query.source_folder = sourceFolder;
+
+  const areaCode = normalizeTextValue(params.areaCode, { maxLength: MAX_EXACT_MATCH_LENGTH });
+  if (areaCode) query.voter_area_code = areaCode;
 
   const items = await sourceFiles
     .find(query)

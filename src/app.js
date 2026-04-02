@@ -8,7 +8,19 @@ const apiRoutes = require("./routes/api-routes");
 
 const app = express();
 const corsOptions = {
-  origin: true,
+  origin(origin, callback) {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    if (env.clientOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
   credentials: true,
 };
 
@@ -38,9 +50,20 @@ app.use((req, res) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(error.statusCode || 500).json({
-    message: error.message || "Internal server error",
-  });
+  let statusCode = error.statusCode || error.status || 500;
+
+  if (error.type === "entity.parse.failed") {
+    statusCode = 400;
+  } else if (typeof error.message === "string" && error.message.startsWith("CORS blocked for origin:")) {
+    statusCode = 403;
+  }
+
+  const message =
+    statusCode >= 500 && statusCode !== 503
+      ? "Internal server error"
+      : error.message || "Internal server error";
+
+  res.status(statusCode).json({ message });
 });
 
 module.exports = app;

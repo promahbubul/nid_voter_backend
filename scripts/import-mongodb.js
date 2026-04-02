@@ -91,6 +91,11 @@ async function importVoters(db, fileName) {
 }
 
 async function createIndexes(db) {
+  await db.collection("users").createIndexes([
+    { key: { username_normalized: 1 }, name: "username_normalized_unique", unique: true },
+    { key: { is_active: 1 }, name: "is_active" },
+  ]);
+
   await db.collection("voters").createIndexes([
     { key: { source_folder: 1, voter_area_code: 1, gender: 1 }, name: "folder_area_gender" },
     { key: { ward_no: 1, gender: 1 }, name: "ward_gender" },

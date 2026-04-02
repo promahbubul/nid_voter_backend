@@ -1,9 +1,12 @@
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const env = require("../config/env");
+const { connectToDatabase } = require("../config/db");
 
 const JWT_ISSUER = "nid-voter-backend";
 const JWT_AUDIENCE = "nid-voter-webapp";
+const USERS_COLLECTION_NAME = "users";
+let ensureIndexesPromise;
 
 function createHttpError(statusCode, message) {
   const error = new Error(message);
@@ -11,13 +14,59 @@ function createHttpError(statusCode, message) {
   return error;
 }
 
-function buildUserProfile() {
+function buildUserProfile(user) {
   return {
-    id: "local-admin",
-    username: env.authUsername,
-    displayName: "System Administrator",
-    role: "admin",
+    id: String(user._id),
+    username: user.username,
+    displayName: user.display_name || user.username,
+    role: user.role || "admin",
   };
+}
+
+function normalizeUsername(value) {
+  return String(value || "").trim();
+}
+
+function normalizeUsernameKey(value) {
+  return normalizeUsername(value).toLowerCase();
+}
+
+async function getUsersCollection() {
+  let db;
+
+  try {
+    db = await connectToDatabase();
+  } catch (_error) {
+    throw createHttpError(503, "Authentication database is unavailable.");
+  }
+
+  if (!ensureIndexesPromise) {
+    ensureIndexesPromise = db
+      .collection(USERS_COLLECTION_NAME)
+      .createIndexes([
+        {
+          key: { username_normalized: 1 },
+          name: "username_normalized_unique",
+          unique: true,
+        },
+        {
+          key: { is_active: 1 },
+          name: "is_active",
+        },
+      ])
+      .catch((error) => {
+        ensureIndexesPromise = null;
+        throw error;
+      });
+  }
+
+  try {
+    await ensureIndexesPromise;
+  } catch (_error) {
+    throw createHttpError(500, "Could not prepare authentication indexes.");
+  }
+
+  return db.collection(USERS_COLLECTION_NAME);
 }
 
 function getCookieOptions() {
@@ -52,23 +101,38 @@ function signSessionToken(user) {
 }
 
 async function verifyCredentials(username, password) {
-  const normalizedUsername = String(username || "").trim();
+  const normalizedUsername = normalizeUsername(username);
   const normalizedPassword = String(password || "");
 
   if (!normalizedUsername || !normalizedPassword) {
     throw createHttpError(400, "Username and password are required.");
   }
 
-  if (normalizedUsername !== env.authUsername) {
+  const users = await getUsersCollection();
+  const user = await users.findOne({
+    username_normalized: normalizeUsernameKey(normalizedUsername),
+    is_active: { $ne: false },
+  });
+
+  if (!user?.password_hash) {
     throw createHttpError(401, "Invalid username or password.");
   }
 
-  const isValidPassword = await bcrypt.compare(normalizedPassword, env.authPasswordHash);
+  const isValidPassword = await bcrypt.compare(normalizedPassword, user.password_hash);
   if (!isValidPassword) {
     throw createHttpError(401, "Invalid username or password.");
   }
 
-  return buildUserProfile();
+  await users.updateOne(
+    { _id: user._id },
+    {
+      $set: {
+        last_login_at: new Date().toISOString(),
+      },
+    },
+  );
+
+  return buildUserProfile(user);
 }
 
 function resolveTokenFromRequest(req) {
