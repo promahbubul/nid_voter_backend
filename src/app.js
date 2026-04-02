@@ -13,6 +13,10 @@ app.use(helmet());
 app.use(
   cors({
     origin(origin, callback) {
+      if (env.allowAllCors) {
+        return callback(null, true);
+      }
+
       if (!origin || env.clientOrigins.includes(origin)) {
         return callback(null, true);
       }

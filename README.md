@@ -19,3 +19,4 @@ npm start
 - Copy `.env.example` to `.env` if needed
 - Set your MongoDB connection in `.env`
 - Change `AUTH_USERNAME` and password hash for production
+- Set `ALLOW_ALL_CORS=true` if you want to allow every origin while keeping credentialed requests working
