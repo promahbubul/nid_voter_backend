@@ -14,6 +14,10 @@ npm install
 npm start
 ```
 
+## cPanel Startup File
+
+Use `app.js` as the application startup file in cPanel Node.js App setup.
+
 ## Environment
 
 - Copy `.env.example` to `.env` if needed
